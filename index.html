@@ -85,6 +85,7 @@
   const ai = { x: 300, y: 12, w: paddleW, h: paddleH };
   const ball = { x: canvas.width/2, y: canvas.height/2, r: 8, vx: 0, vy: 0 };
   const BASE_BALL_SPEED = 50; // x10 быстрее, чем было
+  const PHYSICS_STEP = 1/240; // мелкий шаг, чтобы не терять коллизии на высокой скорости
 
   const questions = [
     { q: 'Кто создал Pong (1972)?', a: ['Atari', 'Nintendo', 'SEGA'], c: 0 },
@@ -125,26 +126,35 @@
     ai.x += (ball.x - (ai.x + ai.w/2)) * 0.08;
     ai.x = clamp(ai.x, 0, canvas.width - ai.w);
 
-    ball.x += ball.vx;
-    ball.y += ball.vy;
+    // substeps: чтобы коллизии не пролетались на высокой скорости
+    let remain = dt;
+    while (remain > 0) {
+      const step = Math.min(PHYSICS_STEP, remain);
+      remain -= step;
 
-    if(ball.x - ball.r < 0 || ball.x + ball.r > canvas.width) ball.vx *= -1;
+      ball.x += ball.vx * step * 60;
+      ball.y += ball.vy * step * 60;
 
-    // AI paddle collision
-    if(ball.y - ball.r <= ai.y + ai.h && ball.y > ai.y && ball.x > ai.x && ball.x < ai.x + ai.w && ball.vy < 0){
-      ball.vy *= -1;
-      ball.vx += (ball.x - (ai.x + ai.w/2)) * 0.015;
+      if(ball.x - ball.r < 0 || ball.x + ball.r > canvas.width) ball.vx *= -1;
+
+      // AI paddle collision
+      if(ball.y - ball.r <= ai.y + ai.h && ball.y >= ai.y && ball.x >= ai.x && ball.x <= ai.x + ai.w && ball.vy < 0){
+        ball.vy = Math.abs(ball.vy);
+        ball.vx += (ball.x - (ai.x + ai.w/2)) * 0.012;
+        ball.y = ai.y + ai.h + ball.r;
+      }
+      // Player paddle collision (+1 за каждый отбитый мяч)
+      if(ball.y + ball.r >= player.y && ball.y <= player.y + player.h && ball.x >= player.x && ball.x <= player.x + player.w && ball.vy > 0){
+        ball.vy = -Math.abs(ball.vy);
+        ball.vx += (ball.x - (player.x + player.w/2)) * 0.016;
+        ball.y = player.y - ball.r;
+        score += 1;
+      }
+
+      // Если мяч вышел за пределы поля — просто респавн
+      if(ball.y < -30){ resetBall(1); }
+      if(ball.y > canvas.height + 30){ resetBall(-1); }
     }
-    // Player paddle collision (+1 за каждый отбитый мяч)
-    if(ball.y + ball.r >= player.y && ball.y < player.y + player.h && ball.x > player.x && ball.x < player.x + player.w && ball.vy > 0){
-      ball.vy *= -1;
-      ball.vx += (ball.x - (player.x + player.w/2)) * 0.02;
-      score += 1;
-    }
-
-    // Если мяч вышел за пределы поля — просто респавн
-    if(ball.y < -30){ resetBall(1); }
-    if(ball.y > canvas.height + 30){ resetBall(-1); }
 
     timeLeft -= dt;
     if(timeLeft <= 0){ endGame(); }
@@ -246,7 +256,11 @@
     const payload = `score_submit|game=pong10|name=${encodeURIComponent(name)}|score=${finalScore}|ts=${Date.now()}`;
     const text = `@stas_a_bot ${payload}`;
 
-    // 1) На мобильных обычно лучше всего работает нативный Share Sheet
+    // 1) Всегда копируем в буфер как самый надёжный вариант
+    let copied = false;
+    try { await navigator.clipboard.writeText(text); copied = true; } catch (_) {}
+
+    // 2) Пробуем системный шаринг
     if (navigator.share) {
       try {
         await navigator.share({ text });
@@ -254,14 +268,22 @@
       } catch (_) {}
     }
 
-    // 2) Копируем в буфер на случай, если Telegram-линк откроет веб
-    try { await navigator.clipboard.writeText(text); } catch (_) {}
+    // 3) Пробуем открыть Telegram app; если не вышло — открываем бота
+    const deepLinkMsg = `tg://msg_url?text=${encodeURIComponent(text)}`;
+    const deepLinkBot = `tg://resolve?domain=stas_a_bot`;
+    const webBot = `https://t.me/stas_a_bot`;
 
-    // 3) Пытаемся открыть приложение Telegram deep link, потом web fallback
-    const deepLink = `tg://msg_url?text=${encodeURIComponent(text)}`;
-    const webLink = `https://t.me/share/url?text=${encodeURIComponent(text)}`;
-    window.location.href = deepLink;
-    setTimeout(() => { window.open(webLink, '_blank'); }, 700);
+    window.location.href = deepLinkMsg;
+    setTimeout(() => {
+      window.location.href = deepLinkBot;
+      setTimeout(() => window.open(webBot, '_blank'), 600);
+    }, 500);
+
+    if (copied) {
+      setTimeout(() => {
+        alert('Результат скопирован. Если открылся сайт Telegram, открой @stas_a_bot в приложении и вставь сообщение вручную.');
+      }, 1200);
+    }
   };
 
   renderLocalLb();
