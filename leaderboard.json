@@ -1,7 +1,13 @@
 {
   "game": "pong10",
-  "updatedAt": "2026-02-16T18:02:54Z",
+  "updatedAt": "2026-02-16T18:03:57Z",
   "scores": [
+    {
+      "name": "zuldare",
+      "score": 46,
+      "ts": 1771265017961,
+      "user": "zuldare"
+    },
     {
       "name": "zuldare",
       "score": 42,
