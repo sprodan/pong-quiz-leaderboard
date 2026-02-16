@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Pong Quiz 10s</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: -apple-system, Inter, system-ui, sans-serif; background: #0c1222; color: #eef3ff; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 14px; }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    .sub { opacity: .85; margin-bottom: 12px; }
+    .card { background: #141c33; border: 1px solid #24315f; border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+    canvas { width: 100%; max-width: 720px; height: auto; border-radius: 12px; background: linear-gradient(#0f1730, #0a1022); touch-action: none; display: block; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    button, input, select { font-size: 16px; border-radius: 10px; border: 1px solid #34467f; background: #1a2750; color: #fff; padding: 10px 12px; }
+    button { cursor: pointer; }
+    button.primary { background: #2a56ff; border-color: #3f67ff; font-weight: 700; }
+    .hidden { display: none; }
+    .stats { font-size: 18px; font-weight: 600; }
+    .q { font-size: 18px; margin-bottom: 10px; }
+    .answers { display: grid; gap: 8px; }
+    ol { margin: 8px 0 0; padding-left: 22px; }
+    .muted { opacity: .8; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🏓 Pong + Quiz (10 секунд)</h1>
+    <div class="sub">Играй 10с, набери очки, ответь на вопрос — правильный ответ = x2.</div>
+
+    <div class="card">
+      <canvas id="game" width="720" height="420"></canvas>
+      <div class="row" style="margin-top:10px">
+        <button id="start" class="primary">Старт</button>
+        <span class="stats" id="stats">Время: 10.0с | Очки: 0</span>
+      </div>
+      <div class="muted" style="margin-top:8px">Управление: свайп/перетаскивание по экрану или ← →.</div>
+    </div>
+
+    <div class="card hidden" id="quizCard">
+      <div class="q" id="question"></div>
+      <div class="answers" id="answers"></div>
+    </div>
+
+    <div class="card hidden" id="resultCard">
+      <div id="resultText" style="font-size:20px;font-weight:700"></div>
+      <div class="row" style="margin-top:10px">
+        <input id="playerName" placeholder="Имя (например stas)" maxlength="20" />
+        <button id="shareBtn" class="primary">Отправить результат в чат</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Кнопка откроет Telegram с готовым сообщением для @stas_a_bot.</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:18px;font-weight:700">Локальный лидерборд (на этом устройстве)</div>
+      <ol id="localLb"></ol>
+      <div class="muted">Общий лидерборд ведётся ботом в файле leaderboard.json и публикуется в чате.</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const startBtn = document.getElementById('start');
+  const stats = document.getElementById('stats');
+  const quizCard = document.getElementById('quizCard');
+  const resultCard = document.getElementById('resultCard');
+  const qEl = document.getElementById('question');
+  const ansEl = document.getElementById('answers');
+  const resultText = document.getElementById('resultText');
+  const shareBtn = document.getElementById('shareBtn');
+  const playerName = document.getElementById('playerName');
+  const localLb = document.getElementById('localLb');
+
+  let running = false;
+  let score = 0;
+  let timeLeft = 10;
+  let lastTs = 0;
+  let gameEnded = false;
+
+  const paddleW = 120, paddleH = 12;
+  const player = { x: 300, y: canvas.height - 24, w: paddleW, h: paddleH };
+  const ai = { x: 300, y: 12, w: paddleW, h: paddleH };
+  const ball = { x: canvas.width/2, y: canvas.height/2, r: 8, vx: 4, vy: 4 };
+
+  const questions = [
+    { q: 'Кто создал Pong (1972)?', a: ['Atari', 'Nintendo', 'SEGA'], c: 0 },
+    { q: 'Какой жанр у игры Pong?', a: ['Платформер', 'Спортивная аркада', 'RPG'], c: 1 },
+    { q: 'Сколько очков даёт правильный ответ здесь?', a: ['x2', '+1', 'x10'], c: 0 },
+    { q: 'Что важнее в Pong?', a: ['Реакция', 'Сюжет', 'Лут'], c: 0 }
+  ];
+
+  function resetBall(dir=1){
+    ball.x = canvas.width/2; ball.y = canvas.height/2;
+    const angle = (Math.random()*0.8 - 0.4);
+    const speed = 5;
+    ball.vx = speed * Math.sin(angle);
+    ball.vy = speed * dir;
+  }
+
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#8fb5ff';
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.fillStyle = '#ffb48f';
+    ctx.fillRect(ai.x, ai.y, ai.w, ai.h);
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.setLineDash([6,7]);
+    ctx.strokeStyle = '#2d3b69';
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function update(dt){
+    // AI follows ball with delay
+    ai.x += (ball.x - (ai.x + ai.w/2)) * 0.08;
+    ai.x = clamp(ai.x, 0, canvas.width - ai.w);
+
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    if(ball.x - ball.r < 0 || ball.x + ball.r > canvas.width) ball.vx *= -1;
+
+    // AI paddle collision
+    if(ball.y - ball.r <= ai.y + ai.h && ball.y > ai.y && ball.x > ai.x && ball.x < ai.x + ai.w && ball.vy < 0){
+      ball.vy *= -1;
+      ball.vx += (ball.x - (ai.x + ai.w/2)) * 0.015;
+    }
+    // Player paddle collision
+    if(ball.y + ball.r >= player.y && ball.y < player.y + player.h && ball.x > player.x && ball.x < player.x + player.w && ball.vy > 0){
+      ball.vy *= -1;
+      ball.vx += (ball.x - (player.x + player.w/2)) * 0.02;
+    }
+
+    // Score rules: pass top => +1, pass bottom => -1 minimum 0
+    if(ball.y < -20){ score += 1; resetBall(1); }
+    if(ball.y > canvas.height + 20){ score = Math.max(0, score - 1); resetBall(-1); }
+
+    timeLeft -= dt;
+    if(timeLeft <= 0){ endGame(); }
+    stats.textContent = `Время: ${Math.max(0,timeLeft).toFixed(1)}с | Очки: ${score}`;
+  }
+
+  function loop(ts){
+    if(!running) return;
+    if(!lastTs) lastTs = ts;
+    const dt = (ts - lastTs)/1000;
+    lastTs = ts;
+    update(dt);
+    draw();
+    if(running) requestAnimationFrame(loop);
+  }
+
+  function startGame(){
+    running = true; gameEnded = false; score = 0; timeLeft = 10; lastTs = 0;
+    quizCard.classList.add('hidden');
+    resultCard.classList.add('hidden');
+    resetBall(Math.random() > 0.5 ? 1 : -1);
+    requestAnimationFrame(loop);
+  }
+
+  function endGame(){
+    if(gameEnded) return;
+    running = false; gameEnded = true;
+    askQuiz();
+  }
+
+  function askQuiz(){
+    quizCard.classList.remove('hidden');
+    ansEl.innerHTML = '';
+    const q = questions[Math.floor(Math.random()*questions.length)];
+    qEl.textContent = `Вопрос: ${q.q}`;
+    q.a.forEach((txt, idx) => {
+      const b = document.createElement('button');
+      b.textContent = txt;
+      b.onclick = () => finish(idx === q.c);
+      ansEl.appendChild(b);
+    });
+  }
+
+  function getLocalScores(){
+    try { return JSON.parse(localStorage.getItem('pong_quiz_scores') || '[]'); } catch { return []; }
+  }
+  function setLocalScores(v){ localStorage.setItem('pong_quiz_scores', JSON.stringify(v)); }
+
+  function renderLocalLb(){
+    const rows = getLocalScores().sort((a,b)=>b.score-a.score).slice(0,10);
+    localLb.innerHTML = rows.map(r => `<li>${r.name}: <b>${r.score}</b></li>`).join('') || '<li>Пока пусто</li>';
+  }
+
+  let finalScore = 0;
+
+  function finish(correct){
+    quizCard.classList.add('hidden');
+    finalScore = correct ? score * 2 : score;
+    const local = getLocalScores();
+    const name = (playerName.value || 'player').slice(0,20);
+    local.push({ name, score: finalScore, ts: Date.now() });
+    setLocalScores(local);
+    renderLocalLb();
+
+    resultCard.classList.remove('hidden');
+    resultText.textContent = `${correct ? '✅ Верно! x2.' : '❌ Неверно.'} Итог: ${finalScore} очков.`;
+  }
+
+  startBtn.onclick = startGame;
+
+  function movePlayerTo(clientX){
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    player.x = clamp(x - player.w/2, 0, canvas.width - player.w);
+  }
+  canvas.addEventListener('pointerdown', e => movePlayerTo(e.clientX));
+  canvas.addEventListener('pointermove', e => { if(e.buttons) movePlayerTo(e.clientX); });
+  window.addEventListener('keydown', e => {
+    if(e.key === 'ArrowLeft') player.x = clamp(player.x - 28, 0, canvas.width - player.w);
+    if(e.key === 'ArrowRight') player.x = clamp(player.x + 28, 0, canvas.width - player.w);
+  });
+
+  shareBtn.onclick = () => {
+    const name = (playerName.value || 'player').replace(/[^a-zA-Zа-яА-Я0-9_\- ]/g, '').trim().slice(0,20) || 'player';
+    const payload = `score_submit|game=pong10|name=${encodeURIComponent(name)}|score=${finalScore}|ts=${Date.now()}`;
+    const text = `@stas_a_bot ${payload}`;
+    const url = `https://t.me/share/url?url=&text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  renderLocalLb();
+  draw();
+})();
+</script>
+</body>
+</html>
