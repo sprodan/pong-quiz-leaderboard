@@ -283,21 +283,19 @@
       } catch (_) {}
     }
 
-    // 3) Пробуем открыть Telegram app; если не вышло — открываем бота
-    const deepLinkMsg = `tg://msg_url?text=${encodeURIComponent(text)}`;
-    const deepLinkBot = `tg://resolve?domain=stas_a_bot`;
+    // 3) Без tg:// deep-link (на некоторых устройствах Telegram крашится)
+    // Открываем только бота в web/app и просим вставить текст из буфера.
     const webBot = `https://t.me/stas_a_bot`;
-
-    window.location.href = deepLinkMsg;
-    setTimeout(() => {
-      window.location.href = deepLinkBot;
-      setTimeout(() => window.open(webBot, '_blank'), 600);
-    }, 500);
+    window.open(webBot, '_blank');
 
     if (copied) {
       setTimeout(() => {
-        alert('Результат скопирован. Если открылся сайт Telegram, открой @stas_a_bot в приложении и вставь сообщение вручную.');
-      }, 1200);
+        alert('Результат скопирован. Открой @stas_a_bot и вставь сообщение вручную.');
+      }, 300);
+    } else {
+      setTimeout(() => {
+        alert('Не удалось скопировать автоматически. Открой @stas_a_bot и отправь результат вручную.');
+      }, 300);
     }
   };
 
