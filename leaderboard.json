@@ -1,5 +1,12 @@
 {
   "game": "pong10",
-  "updatedAt": null,
-  "scores": []
+  "updatedAt": "2026-02-16T18:01:27Z",
+  "scores": [
+    {
+      "name": "Стас",
+      "score": 18,
+      "ts": 1771264859226,
+      "user": "sprodan"
+    }
+  ]
 }
