@@ -86,7 +86,7 @@
   const player = { x: 300, y: canvas.height - 24, w: paddleW, h: paddleH };
   const ai = { x: 300, y: 12, w: paddleW, h: paddleH };
   const ball = { x: canvas.width/2, y: canvas.height/2, r: 8, vx: 0, vy: 0 };
-  const BASE_BALL_SPEED = 50; // x10 быстрее, чем было
+  const BASE_BALL_SPEED = 25; // в 2 раза медленнее
   const PHYSICS_STEP = 1/240; // мелкий шаг, чтобы не терять коллизии на высокой скорости
 
   const questions = [
