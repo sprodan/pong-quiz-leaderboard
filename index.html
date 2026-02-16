@@ -49,7 +49,7 @@
         <input id="playerName" placeholder="Имя (например stas)" maxlength="20" />
         <button id="shareBtn" class="primary">Отправить результат в чат</button>
       </div>
-      <div class="muted" style="margin-top:8px">Кнопка откроет Telegram с готовым сообщением для @stas_a_bot.</div>
+      <div class="muted" style="margin-top:8px">Кнопка откроет Telegram/Share и подставит готовый результат для @stas_a_bot.</div>
     </div>
 
     <div class="card">
@@ -83,7 +83,8 @@
   const paddleW = 120, paddleH = 12;
   const player = { x: 300, y: canvas.height - 24, w: paddleW, h: paddleH };
   const ai = { x: 300, y: 12, w: paddleW, h: paddleH };
-  const ball = { x: canvas.width/2, y: canvas.height/2, r: 8, vx: 4, vy: 4 };
+  const ball = { x: canvas.width/2, y: canvas.height/2, r: 8, vx: 0, vy: 0 };
+  const BASE_BALL_SPEED = 50; // x10 быстрее, чем было
 
   const questions = [
     { q: 'Кто создал Pong (1972)?', a: ['Atari', 'Nintendo', 'SEGA'], c: 0 },
@@ -94,8 +95,8 @@
 
   function resetBall(dir=1){
     ball.x = canvas.width/2; ball.y = canvas.height/2;
-    const angle = (Math.random()*0.8 - 0.4);
-    const speed = 5;
+    const angle = (Math.random()*1.2 - 0.6);
+    const speed = BASE_BALL_SPEED;
     ball.vx = speed * Math.sin(angle);
     ball.vy = speed * dir;
   }
@@ -134,15 +135,16 @@
       ball.vy *= -1;
       ball.vx += (ball.x - (ai.x + ai.w/2)) * 0.015;
     }
-    // Player paddle collision
+    // Player paddle collision (+1 за каждый отбитый мяч)
     if(ball.y + ball.r >= player.y && ball.y < player.y + player.h && ball.x > player.x && ball.x < player.x + player.w && ball.vy > 0){
       ball.vy *= -1;
       ball.vx += (ball.x - (player.x + player.w/2)) * 0.02;
+      score += 1;
     }
 
-    // Score rules: pass top => +1, pass bottom => -1 minimum 0
-    if(ball.y < -20){ score += 1; resetBall(1); }
-    if(ball.y > canvas.height + 20){ score = Math.max(0, score - 1); resetBall(-1); }
+    // Если мяч вышел за пределы поля — просто респавн
+    if(ball.y < -30){ resetBall(1); }
+    if(ball.y > canvas.height + 30){ resetBall(-1); }
 
     timeLeft -= dt;
     if(timeLeft <= 0){ endGame(); }
@@ -218,19 +220,48 @@
     const x = clientX - rect.left;
     player.x = clamp(x - player.w/2, 0, canvas.width - player.w);
   }
-  canvas.addEventListener('pointerdown', e => movePlayerTo(e.clientX));
-  canvas.addEventListener('pointermove', e => { if(e.buttons) movePlayerTo(e.clientX); });
+  let dragging = false;
+  canvas.addEventListener('pointerdown', e => { dragging = true; movePlayerTo(e.clientX); });
+  canvas.addEventListener('pointermove', e => { if(dragging) movePlayerTo(e.clientX); });
+  canvas.addEventListener('pointerup', () => { dragging = false; });
+  canvas.addEventListener('pointercancel', () => { dragging = false; });
+
+  // Явный тач-контрол для мобильных
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (e.touches[0]) movePlayerTo(e.touches[0].clientX);
+  }, { passive: false });
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches[0]) movePlayerTo(e.touches[0].clientX);
+  }, { passive: false });
+
   window.addEventListener('keydown', e => {
-    if(e.key === 'ArrowLeft') player.x = clamp(player.x - 28, 0, canvas.width - player.w);
-    if(e.key === 'ArrowRight') player.x = clamp(player.x + 28, 0, canvas.width - player.w);
+    if(e.key === 'ArrowLeft') player.x = clamp(player.x - 36, 0, canvas.width - player.w);
+    if(e.key === 'ArrowRight') player.x = clamp(player.x + 36, 0, canvas.width - player.w);
   });
 
-  shareBtn.onclick = () => {
+  shareBtn.onclick = async () => {
     const name = (playerName.value || 'player').replace(/[^a-zA-Zа-яА-Я0-9_\- ]/g, '').trim().slice(0,20) || 'player';
     const payload = `score_submit|game=pong10|name=${encodeURIComponent(name)}|score=${finalScore}|ts=${Date.now()}`;
     const text = `@stas_a_bot ${payload}`;
-    const url = `https://t.me/share/url?url=&text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+
+    // 1) На мобильных обычно лучше всего работает нативный Share Sheet
+    if (navigator.share) {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch (_) {}
+    }
+
+    // 2) Копируем в буфер на случай, если Telegram-линк откроет веб
+    try { await navigator.clipboard.writeText(text); } catch (_) {}
+
+    // 3) Пытаемся открыть приложение Telegram deep link, потом web fallback
+    const deepLink = `tg://msg_url?text=${encodeURIComponent(text)}`;
+    const webLink = `https://t.me/share/url?text=${encodeURIComponent(text)}`;
+    window.location.href = deepLink;
+    setTimeout(() => { window.open(webLink, '_blank'); }, 700);
   };
 
   renderLocalLb();
